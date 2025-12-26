@@ -1,0 +1,33 @@
+[project]
+name            = "kalavai-job-operator"
+version         = "0.0.1"
+authors = [
+  {name = "Carlos Fernandez Musoles", email = "carlos@kalavai.net"}
+]
+maintainers = [
+  {name = "Carlos Fernandez Musoles", email = "carlos@kalavai.net"}
+]
+description     = "Kalavai Job Operator to manage Kalavai deployments"
+license         = "Apache-2.0"
+license-files   = ["LICENSE"]
+readme          = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.12"
+dependencies = [
+    "requests>= 2.25",
+    "kopf"
+]
+
+
+[build-system]
+requires        = [
+    "poetry-core>=1.0.0",
+    "setuptools"  # for pip install -e
+]
+build-backend   = "poetry.core.masonry.api"
+
+
+[tool.setuptools.packages.find]
+where = ["kalavai_job_operator"]
+
+[tool.setuptools.package-data]
+assets = ["*.yaml", "*.conf"]
