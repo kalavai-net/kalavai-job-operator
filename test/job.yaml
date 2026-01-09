@@ -1,0 +1,14 @@
+apiVersion: kalavai.net/v1
+kind: KalavaiJob
+metadata:
+  name: qwen-controller
+spec:
+  template:
+    chart: vllm
+    version: "0.0.6"
+    values:
+      model_id: "Qwen/Qwen3-0.6B"
+      hf_token: ""
+      workers: 1
+      gpus: 0
+  priorityClassName: user-spot-priority

@@ -1,0 +1,11 @@
+image:
+  repository: kalavai/kalavai-job-operator
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+operator:
+  replicaCount: 1
+
+jobTemplates:
+  url: https://kalavai-net.github.io/kalavai-templates/
+  interval: 10m

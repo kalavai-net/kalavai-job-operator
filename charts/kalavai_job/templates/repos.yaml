@@ -1,0 +1,7 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: kalavai-templates
+spec:
+  interval: {{ .Values.jobTemplates.interval }}
+  url: {{ .Values.jobTemplates.url }}

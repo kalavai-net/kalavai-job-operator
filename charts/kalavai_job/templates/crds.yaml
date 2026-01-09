@@ -1,0 +1,65 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: kalavaijobs.kalavai.net
+spec:
+  group: kalavai.net
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+          - spec
+          properties:
+            spec:
+              type: object
+              required:
+              - template
+              properties:
+                template:
+                  type: object
+                  required:
+                  - chart
+                  - values
+                  properties:
+                    chart:
+                      type: string
+                      description: Chart name that for the template to be deployed
+                      x-kubernetes-validations:
+                        - rule: "self == oldSelf"
+                          message: "The template.chart field is immutable and cannot be changed after creation."
+                    version:
+                      type: string
+                      description: Version of the chart to deploy
+                    values:
+                      type: object
+                      description: Values for the corresponding template. For documentation, see https://github.com/kalavai-net/kalavai-templates
+                      x-kubernetes-preserve-unknown-fields: true
+                priorityClassName:
+                  type: string
+                  description: Priority class for the job
+                nodeSelectors:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      key: {type: string}
+                      value: {type: string}
+                nodeSelectorsOps:
+                  type: string
+                  description: how to concatenate node selectors (OR, AND)
+            status:
+              type: object
+              # Use this for arbitrary status data
+              x-kubernetes-preserve-unknown-fields: true
+  scope: Namespaced
+  names:
+    plural: kalavaijobs
+    singular: kalavaijob
+    kind: KalavaiJob
+    shortNames:
+    - kj
+    - kjob

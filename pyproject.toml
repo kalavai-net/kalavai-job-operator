@@ -8,13 +8,12 @@ maintainers = [
   {name = "Carlos Fernandez Musoles", email = "carlos@kalavai.net"}
 ]
 description     = "Kalavai Job Operator to manage Kalavai deployments"
-license         = "Apache-2.0"
-license-files   = ["LICENSE"]
 readme          = {file = "README.md", content-type = "text/markdown"}
 requires-python = ">=3.12"
 dependencies = [
     "requests>= 2.25",
-    "kopf"
+    "kopf",
+    "kubernetes"
 ]
 
 

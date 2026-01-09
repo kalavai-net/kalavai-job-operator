@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name}}-deployment
+spec:
+  replicas: {{ .Values.operator.replicaCount }}
+  selector:
+    matchLabels:
+      app: kalavai-job-operator
+  template:
+    metadata:
+      labels:
+        app: kalavai-job-operator
+    spec:
+      serviceAccountName: {{ .Release.Name}}-sa
+      containers:
+        - name: operator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          # Kopf command to run the script
+          command: 
+          - sh
+          - -c
+          - |
+            kopf run /app/kalavai_job_operator/job_operator.py --verbose
