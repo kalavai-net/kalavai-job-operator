@@ -1,0 +1,13 @@
+apiVersion: v1
+entries:
+  kalavai-job-operator:
+  - apiVersion: v2
+    appVersion: 0.0.1
+    created: "2026-01-09T18:12:12.303958921Z"
+    description: An operator to manage KalavaiJobs
+    digest: e0e790a3b467cbc64e86198d04904c67a3c77e2ddc233dc67f670a537d8f9019
+    name: kalavai-job-operator
+    urls:
+    - https://github.com/kalavai-net/kalavai-job-operator/releases/download/kalavai-job-operator-0.0.1/kalavai-job-operator-0.0.1.tgz
+    version: 0.0.1
+generated: "2026-01-09T18:12:12.303970152Z"
