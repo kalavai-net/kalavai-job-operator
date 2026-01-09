@@ -1,34 +1,9 @@
 # job-manager-operator
 
-## Install
+Kubernetes operator to manage KalavaiJobs. A KalavaiJob is a convenient CRD that deploys [kalavai templates](https://github.com/kalavai-net/kalavai-templates) in Kubernetes.
 
-```bash
-python3 -m venv env
-source env/bin/activate
-pip install -e .
-```
 
-## Run
-
-Apply crds:
-```bash
-kubectl apply -f chart/templates/crds.yaml
-```
-
-Run operator:
-```bash
-kopf run kalavai_job_operator/operator.py
-```
-
-Deploy test job:
-
-```bash
-kubectl apply -f test/job.yaml
-```
-
-## Install with helm
-
-### Requirements
+## Requirements
 
 Install Flux (only sourceController and helmController are required):
 
@@ -42,10 +17,17 @@ Install volcano-sh scheduler:
 helm install volcano volcano-sh/volcano --version "1.13.0" --create-namespace -n volcano-system
 ```
 
-# Install from local repo
+## Install from local repo
 
 ```bash
 helm install my-release ./chart
+```
+
+## Install from published chart
+
+```bash
+helm repo add kalavai-templates https://kalavai-net.github.io/kalavai-job-operator/
+helm repo update
 ```
 
 ## BUILD
@@ -56,7 +38,28 @@ docker build -t kalavai/kalavai-job-operator:latest .
 docker push kalavai/kalavai-job-operator:latest
 ```
 
+## Develop
 
-## TODO
+Configure environment
 
-- Reference to job templates documentation repo
+```bash
+python3 -m venv env
+source env/bin/activate
+pip install -e .
+```
+
+Apply crds:
+```bash
+kubectl apply -f chart/templates/crds.yaml
+```
+
+Run operator:
+```bash
+kopf run kalavai_job_operator/job_operator.py
+```
+
+Deploy test job:
+
+```bash
+kubectl apply -f test/job.yaml
+```
