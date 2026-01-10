@@ -26,8 +26,18 @@ helm install my-release ./chart
 ## Install from published chart
 
 ```bash
-helm repo add kalavai-templates https://kalavai-net.github.io/kalavai-job-operator/
+helm repo add kalavai-job-operator https://kalavai-net.github.io/kalavai-job-operator/
 helm repo update
+
+helm install my-release kalavai-job-operator
+```
+
+## Test
+
+Deploy test job:
+
+```bash
+kubectl apply -f test/job.yaml
 ```
 
 ## BUILD
@@ -56,10 +66,4 @@ kubectl apply -f chart/templates/crds.yaml
 Run operator:
 ```bash
 kopf run kalavai_job_operator/job_operator.py
-```
-
-Deploy test job:
-
-```bash
-kubectl apply -f test/job.yaml
 ```
