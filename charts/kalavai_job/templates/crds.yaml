@@ -41,6 +41,9 @@ spec:
                 priorityClassName:
                   type: string
                   description: Priority class for the job
+                replicas:
+                  type: integer
+                  description: Number of replicas of the job to deploy
                 nodeSelectors:
                   type: array
                   items:
