@@ -11,7 +11,7 @@ HELM_PLURAL = "helmreleases"
 HELM_API_VERSION = "v2"
 HELM_GROUP = "helm.toolkit.fluxcd.io"
 KALAVAI_PLURAL = "kalavaijobs"
-KALAVAI_API_VERSION = "v2"
+KALAVAI_API_VERSION = "v1"
 KALAVAI_GROUP = "kalavai.net"
 
 
@@ -83,6 +83,7 @@ def create(spec, name, namespace, patch, logger):
     #patch.status['jobId'] = job_id
     # add job id to labels for quick search
     patch.metadata.labels["jobId"] = job_id
+    logger.info(f"CREATED!: {job_id}")
 
     return {'status': 'synced', 'success': ""}
 
@@ -155,13 +156,14 @@ def create_fn(spec, name, namespace, patch, logger, **kwargs):
 
     return result
 
-@kopf.on.update(KALAVAI_GROUP, KALAVAI_API_VERSION, KALAVAI_PLURAL)
-def update_fn(spec, name, status, namespace, patch, logger, **kwargs):
+@kopf.on.field(KALAVAI_GROUP, KALAVAI_API_VERSION, KALAVAI_PLURAL, field='spec')
+def update_fn(spec, name, body, namespace, patch, logger, **kwargs):
     """
     Delete old instance and replace it with a new one
     """
+    logger.info("Spec changed! Re-creating resources...")
     delete(
-        status=status,
+        body=body,
         namespace=namespace,
         logger=logger
     )
@@ -175,7 +177,7 @@ def update_fn(spec, name, status, namespace, patch, logger, **kwargs):
     )
     return result
 
-@kopf.on.delete('kalavai.net', 'v1', 'kalavaijobs')
+@kopf.on.delete(KALAVAI_GROUP, KALAVAI_API_VERSION, KALAVAI_PLURAL)
 def delete_fn(body, namespace, logger, **kwargs):
     """
     Triggered when the object is marked for deletion.
