@@ -10,6 +10,9 @@ JOB_LABEL_KEY = "kalavai.job.name"
 HELM_PLURAL = "helmreleases"
 HELM_API_VERSION = "v2"
 HELM_GROUP = "helm.toolkit.fluxcd.io"
+KALAVAI_PLURAL = "kalavaijobs"
+KALAVAI_API_VERSION = "v2"
+KALAVAI_GROUP = "kalavai.net"
 
 
 def create(spec, name, namespace, patch, logger):
@@ -77,14 +80,16 @@ def create(spec, name, namespace, patch, logger):
         group=HELM_GROUP, version=HELM_API_VERSION, 
         namespace=namespace, plural=HELM_PLURAL, body=helm_release
     )
-    patch.status['jobId'] = job_id
+    #patch.status['jobId'] = job_id
+    # add job id to labels for quick search
+    patch.metadata.labels["jobId"] = job_id
 
     return {'status': 'synced', 'success': ""}
 
-def delete(status, namespace, logger):
+def delete(body, namespace, logger):
     api = client.CustomObjectsApi()
 
-    job_id = status.get('jobId', None)
+    job_id = body.get("metadata", {}).get("labels", {}).get('jobId', None)
 
     if job_id is None:
         logger.warning(f"jobId not found, cannot delete")
@@ -129,7 +134,7 @@ def configure(settings: kopf.OperatorSettings, **_):
     except config.ConfigException:
         config.load_kube_config()
 
-@kopf.on.create('kalavai.net', 'v1', 'kalavaijobs')
+@kopf.on.create(KALAVAI_GROUP, KALAVAI_API_VERSION, KALAVAI_PLURAL)
 def create_fn(spec, name, namespace, patch, logger, **kwargs):
     """
     Triggered when a new KalavaiJob object is created.
@@ -150,7 +155,7 @@ def create_fn(spec, name, namespace, patch, logger, **kwargs):
 
     return result
 
-@kopf.on.update('kalavai.net', 'v1', 'kalavaijobs')
+@kopf.on.update(KALAVAI_GROUP, KALAVAI_API_VERSION, KALAVAI_PLURAL)
 def update_fn(spec, name, status, namespace, patch, logger, **kwargs):
     """
     Delete old instance and replace it with a new one
@@ -171,7 +176,7 @@ def update_fn(spec, name, status, namespace, patch, logger, **kwargs):
     return result
 
 @kopf.on.delete('kalavai.net', 'v1', 'kalavaijobs')
-def delete_fn(status, namespace, logger, **kwargs):
+def delete_fn(body, namespace, logger, **kwargs):
     """
     Triggered when the object is marked for deletion.
     Kopf automatically handles the Finalizer logic here.
@@ -179,30 +184,111 @@ def delete_fn(status, namespace, logger, **kwargs):
     Delete job with helm
     """
     delete(
-        status=status,
+        body=body,
         namespace=namespace,
         logger=logger
     )
     
 
-# Only watch pods that have our specific label
-# For CRDs, use format: @kopf.on.event('group', 'version', 'plural')
-#   Then update rbac permissions
-    # - apiGroups: ["ray.io"]
-    #   resources: ["rayclusters"]
-    #   verbs: ["get", "list", "watch"]
-@kopf.on.event('pods', labels={'app': 'kv-worker'})
-def watch_children(event, logger, **kwargs):
-    """Continuously monitor status and update CRD"""
-    pod = event['object']
-    status = pod.get('status', {}).get('phase')
-    name = pod['metadata']['name']
+# watch pods related to the job
+@kopf.on.field('pods', field='status.phase', labels={TEMPLATE_LABEL: kopf.PRESENT})
+def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
+    """
+    Triggers only when a Pod with label 'monitored-by=my-operator' 
+    changes its status.phase (e.g., Pending -> Running).
+    """
+    print(f"Pod {namespace}/{name} changed status from {old} to {new}")
+    job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_LABEL)
     
-    # Check the event type (ADDED, MODIFIED, DELETED)
-    event_type = event['type']
+    custom_api = client.CustomObjectsApi()
+
+    # 2. Find the CRD instance that matches this jobId
+    # We assume the CRD was also labeled with jobId during creation
+    try:
+        parent_crs = custom_api.list_namespaced_custom_object(
+            group=KALAVAI_GROUP,
+            version=KALAVAI_API_VERSION,
+            namespace=namespace,
+            plural=KALAVAI_PLURAL,
+            label_selector=f"jobId={job_id}"
+        )
+        
+        items = parent_crs.get('items', [])
+        if not items:
+            logger.warning(f"No CR found for jobId: {job_id}")
+            return
+            
+        # Assuming 1:1 relationship between jobId and CR
+        parent_cr = items[0]
+        parent_name = parent_cr['metadata']['name']
+
+    except client.exceptions.ApiException as e:
+        logger.error(f"Error searching for CR: {e}")
+        return
+
+    # 3. Update the specific CR status
+    patch_body = {
+        "status": {
+            "podRecords": {
+                name: {"phase": new, "jobId": job_id}
+            }
+        }
+    }
+    custom_api.patch_namespaced_custom_object_status(
+        group=KALAVAI_GROUP,
+        version=KALAVAI_API_VERSION,
+        namespace=namespace,
+        plural=KALAVAI_PLURAL,
+        name=parent_name,
+        body=patch_body
+    )
+    logger.info(f"Updated CR {parent_name} via jobId {job_id}")
+
+# Watch services related to the job
+@kopf.on.event('services', labels={TEMPLATE_LABEL: kopf.PRESENT})
+def on_nodeport_assigned(event, body, meta, logger, **_):
+
+    job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_LABEL)
     
-    if event_type == 'MODIFIED' and status == 'Running':
-        logger.info(f"Child Pod {name} is now healthy and Running.")
+    svc_name = meta.get('name')
+    namespace = meta.get('namespace')
+
+    # 1. Extract interesting networking info
+    spec = body.get('spec', {})
     
-    if status == 'Failed':
-        logger.error(f"Child Pod {name} has failed! Check logs.")
+    # Get NodePorts if they exist
+    node_ports = {p.get('name'): p.get('nodePort') for p in spec.get('ports', []) if p.get('nodePort')}
+
+    # 2. Find the Parent CR using the jobId label
+    custom_api = client.CustomObjectsApi()
+    try:
+        parent_crs = custom_api.list_namespaced_custom_object(
+            group=KALAVAI_GROUP,
+            version=KALAVAI_API_VERSION,
+            namespace=namespace,
+            plural=KALAVAI_PLURAL,
+            label_selector=f"jobId={job_id}"
+        )
+        
+        if not parent_crs.get('items'):
+            return
+            
+        parent_name = parent_crs['items'][0]['metadata']['name']
+        # 3. Patch the ServiceRecords section of the CR
+        patch_body = {
+            "status": {
+                "serviceRecords": {
+                    svc_name: {
+                        "clusterIP": spec.get('clusterIP'),
+                        "nodePorts": node_ports
+                    }
+                }
+            }
+        }
+        custom_api.patch_namespaced_custom_object_status(
+            group=KALAVAI_GROUP, version=KALAVAI_API_VERSION, namespace=namespace,
+            plural=KALAVAI_PLURAL, name=parent_name, body=patch_body
+        )
+        
+    except client.exceptions.ApiException as e:
+        logger.error(f"Failed to sync service {svc_name} to CR: {e}")

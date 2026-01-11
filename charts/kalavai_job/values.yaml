@@ -1,5 +1,4 @@
 image:
-  repository: kalavai/kalavai-job-operator
   tag: "latest"
   pullPolicy: IfNotPresent
 
