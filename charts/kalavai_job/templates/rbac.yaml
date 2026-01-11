@@ -11,7 +11,7 @@ rules:
   # Permissions for the CRD
   - apiGroups: ["kalavai.net"]
     resources: ["kalavaijobs", "kalavaijobs/status", "kalavaijobs/finalizers"]
-    verbs: ["get", "list", "watch", "patch"]
+    verbs: ["get", "list", "watch", "patch", "update"]
   # Permissions for Kopf to manage events/finalizers
   - apiGroups: [""]
     resources: ["events", "secrets", "pods", "services", "pods/status"]

@@ -197,7 +197,7 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
     Triggers only when a Pod with label 'monitored-by=my-operator' 
     changes its status.phase (e.g., Pending -> Running).
     """
-    print(f"Pod {namespace}/{name} changed status from {old} to {new}")
+    logger.info(f"Pod {namespace}/{name} changed status from {old} to {new}")
     job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_LABEL)
     
     custom_api = client.CustomObjectsApi()
@@ -221,6 +221,7 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
         # Assuming 1:1 relationship between jobId and CR
         parent_cr = items[0]
         parent_name = parent_cr['metadata']['name']
+        logger.info(f"========> CR: {parent_name} > {namespace}")
 
     except client.exceptions.ApiException as e:
         logger.error(f"Error searching for CR: {e}")
@@ -245,20 +246,18 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
     logger.info(f"Updated CR {parent_name} via jobId {job_id}")
 
 # Watch services related to the job
-@kopf.on.event('services', labels={TEMPLATE_LABEL: kopf.PRESENT})
-def on_nodeport_assigned(event, body, meta, spec, logger, **_):
+@kopf.on.field('services', field='spec.ports', labels={TEMPLATE_LABEL: kopf.PRESENT})
+def on_nodeport_assigned(old, new, meta, spec, logger, **_):
     """
-    event:  The type of event (ADDED, MODIFIED, DELETED)
-    body:   The full service object
-    meta:   Metadata (name, namespace, labels, etc.)
-    spec:   The desired state (ports, selector, type)
+    old:  The previous value of spec.ports
+    new:  The current value of spec.ports
+    spec: The ENTIRE spec dictionary of the Service
+    meta: The metadata (names, labels)
     """
     job_id = meta.get('labels', {}).get(TEMPLATE_LABEL)
     
     svc_name = meta.get('name')
     namespace = meta.get('namespace')
-
-    logger.info(f"----------->{job_id} || {svc_name} -- {namespace}")
 
     # 1. Extract interesting networking info
     # Get NodePorts if they exist
@@ -278,8 +277,8 @@ def on_nodeport_assigned(event, body, meta, spec, logger, **_):
         if not parent_crs.get('items'):
             logger.info(f"Parent CR not found for jobId {job_id}")
             return
-            
         parent_name = parent_crs['items'][0]['metadata']['name']
+        logger.info(f"----------->{parent_name} > {namespace}")
         # 3. Patch the ServiceRecords section of the CR
         patch_body = {
             "status": {
