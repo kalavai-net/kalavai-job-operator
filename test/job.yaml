@@ -5,7 +5,7 @@ metadata:
 spec:
   template:
     chart: vllm
-    version: "0.0.6"
+    version: "0.0.7"
     values:
       model_id: "Qwen/Qwen3-0.6B"
       hf_token: ""

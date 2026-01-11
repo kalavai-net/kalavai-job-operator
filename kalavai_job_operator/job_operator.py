@@ -32,17 +32,15 @@ def create(spec, name, namespace, patch, logger):
 
     # inject job id to values
     job_id = str(uuid.uuid4())
-    if "jobId" in values:
-        logger.info("JobId property found in provided values. It will be overwritten.")
-    values["jobId"] = job_id
-
+    
     # inject system values
     if "system" in values:
         logger.info("'System' property found in provided values. It will be overwritten")
     values["system"] = {
         "priorityClassName": priority_class,
         "nodeSelectors": node_selectors,
-        "nodeSelectorsOps": node_selectors_ops
+        "nodeSelectorsOps": node_selectors_ops,
+        "jobId": job_id
     }
     # Deploy helm template chart
     helm_release = {
@@ -248,16 +246,21 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
 
 # Watch services related to the job
 @kopf.on.event('services', labels={TEMPLATE_LABEL: kopf.PRESENT})
-def on_nodeport_assigned(event, body, meta, logger, **_):
-
-    job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_LABEL)
+def on_nodeport_assigned(event, body, meta, spec, logger, **_):
+    """
+    event:  The type of event (ADDED, MODIFIED, DELETED)
+    body:   The full service object
+    meta:   Metadata (name, namespace, labels, etc.)
+    spec:   The desired state (ports, selector, type)
+    """
+    job_id = meta.get('labels', {}).get(TEMPLATE_LABEL)
     
     svc_name = meta.get('name')
     namespace = meta.get('namespace')
 
+    logger.info(f"----------->{job_id} || {svc_name} -- {namespace}")
+
     # 1. Extract interesting networking info
-    spec = body.get('spec', {})
-    
     # Get NodePorts if they exist
     node_ports = {p.get('name'): p.get('nodePort') for p in spec.get('ports', []) if p.get('nodePort')}
 
@@ -273,6 +276,7 @@ def on_nodeport_assigned(event, body, meta, logger, **_):
         )
         
         if not parent_crs.get('items'):
+            logger.info(f"Parent CR not found for jobId {job_id}")
             return
             
         parent_name = parent_crs['items'][0]['metadata']['name']
