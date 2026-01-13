@@ -6,6 +6,7 @@ spec:
   template:
     chart: vllm
     version: "0.0.7"
+    repo: kalavai-templates
     values:
       model_id: "Qwen/Qwen3-0.6B"
       hf_token: ""

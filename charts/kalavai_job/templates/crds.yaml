@@ -26,6 +26,7 @@ spec:
                   required:
                   - chart
                   - values
+                  - repo
                   properties:
                     chart:
                       type: string
@@ -36,6 +37,9 @@ spec:
                     version:
                       type: string
                       description: Version of the chart to deploy
+                    repo:
+                      type: string
+                      description: Name of the helm repo to find the chart in
                     values:
                       type: object
                       description: Values for the corresponding template. For documentation, see https://github.com/kalavai-net/kalavai-templates
