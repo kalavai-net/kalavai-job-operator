@@ -6,7 +6,6 @@ from kubernetes import client, config
 
 
 TEMPLATE_LABEL = os.getenv("TEMPLATE_LABEL", "kalavai.job.name")
-JOB_LABEL_KEY = "kalavai.job.name"
 HELM_PLURAL = "helmreleases"
 HELM_API_VERSION = "v2"
 HELM_GROUP = "helm.toolkit.fluxcd.io"
@@ -60,7 +59,7 @@ def create(spec, name, namespace, patch, logger):
         "metadata": {
             "name": name,
             "labels": {
-                JOB_LABEL_KEY: job_id
+                TEMPLATE_LABEL: job_id
             }
         },
         "spec": {
@@ -97,7 +96,7 @@ def delete(body, namespace, logger):
         logger.warning(f"---> jobId not found, cannot delete")
         return
     
-    label_selector = f"{JOB_LABEL_KEY}={job_id}"
+    label_selector = f"{TEMPLATE_LABEL}={job_id}"
     
     # 2. Find the objects
     try:
@@ -190,7 +189,64 @@ def delete_fn(body, namespace, logger, **kwargs):
         namespace=namespace,
         logger=logger
     )
+
+# watch status changes on the HELM release object created
+@kopf.on.field(HELM_GROUP, HELM_API_VERSION, HELM_PLURAL, field='status.conditions')
+def sync_all_helm_conditions(old, new, name, namespace, body, logger, **kwargs):
+    """
+    Replicates the entire conditions list from a HelmRelease to a parent CR.
+    """
+    if not new:
+        return
+
+    # 1. Transform the conditions into a format for your CR
+    # We map them to ensure we only take the fields we want (cleanliness)
+    captured_conditions = []
+    for cond in new:
+        captured_conditions.append({
+            "type": cond.get('type'),
+            "status": cond.get('status'),
+            "reason": cond.get('reason'),
+            "message": cond.get('message'),
+            "lastTransitionTime": cond.get('lastTransitionTime')
+        })
+
+    # 2. Extract link to parent CR
+    job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_LABEL)
+    if not job_id:
+        logger.warning(f"---> No job id found in helm release {name}")
+        return
+
+    custom_api = client.CustomObjectsApi()
     
+    try:
+        # 3. Find parent CRs
+        parent_crs = custom_api.list_namespaced_custom_object(
+            group=KALAVAI_GROUP, version=KALAVAI_API_VERSION, namespace=namespace,
+            plural=KALAVAI_PLURAL, label_selector=f"jobId={job_id}"
+        )
+        if len(parent_crs) == 0:
+            logger.warning(f"---> Job id {job_id} did not have a corresponding CR")
+            return
+        for cr in parent_crs.get('items', []):
+            cr_name = cr['metadata']['name']
+            # 4. Patch the CR status with the full list
+            patch_body = {
+                "status": {
+                    "releases": {
+                        "name": name,
+                        "conditions": captured_conditions
+                    }
+                }
+            }
+            custom_api.patch_namespaced_custom_object_status(
+                group=KALAVAI_GROUP, version=KALAVAI_API_VERSION, namespace=namespace,
+                plural=KALAVAI_PLURAL, name=cr_name, body=patch_body
+            )
+            logger.info(f"---> Replicated {len(captured_conditions)} conditions to {cr_name}")
+
+    except Exception as e:
+        logger.error(f"---> Failed to replicate conditions: {e}")
 
 # watch pods related to the job
 @kopf.on.field('pods', field='status.phase', labels={TEMPLATE_LABEL: kopf.PRESENT})
@@ -241,7 +297,7 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
     # 3. Update the specific CR status
     patch_body = {
         "status": {
-            "podRecords": {
+            "pods": {
                 name: {
                     "nodeName": node_name,
                     "phase": phase,
@@ -261,71 +317,6 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
         body=patch_body
     )
     logger.info(f"---> Updated CR {namespace}/{parent_name} via jobId {job_id}")
-
-# @kopf.on.field('pods', field='status', labels={TEMPLATE_LABEL: kopf.PRESENT})
-# def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
-#     """
-#     Triggers on any change to the status field of a monitored Pod.
-#     Captures phases, conditions, and restart counts.
-#     """
-#     job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_LABEL)
-    
-#     # 1. Extract detailed status information
-#     node_name = body.get('spec', {}).get('nodeName', 'Unassigned')
-#     status = body.get('status', {})
-#     phase = status.get('phase')
-#     conditions = status.get('conditions', [])
-#     container_statuses = status.get('containerStatuses', [])
-    
-#     # Calculate total restarts across all containers
-#     restart_count = sum(c.get('restartCount', 0) for c in container_statuses)
-    
-#     # Get the "Ready" status specifically
-#     is_ready = any(c.get('type') == 'Ready' and c.get('status') == 'True' for c in conditions)
-
-#     logger.info(f"Pod {name} | Phase: {phase} | Ready: {is_ready} | Restarts: {restart_count}")
-
-#     custom_api = client.CustomObjectsApi()
-
-#     try:
-#         # 2. Find the CRD (Your existing logic)
-#         parent_crs = custom_api.list_namespaced_custom_object(
-#             group=KALAVAI_GROUP, version=KALAVAI_API_VERSION,
-#             namespace=namespace, plural=KALAVAI_PLURAL,
-#             label_selector=f"jobId={job_id}"
-#         )
-        
-#         items = parent_crs.get('items', [])
-#         if not items:
-#             logger.warning(f"No CR found for jobId: {job_id}")
-#             return
-            
-#         parent_name = items[0]['metadata']['name']
-
-#         # 3. Update the CR status with a richer data structure
-#         patch_body = {
-#             "status": {
-#                 "podRecords": {
-#                     name: {
-#                         "nodeName": node_name,
-#                         "phase": phase,
-#                         "ready": is_ready,
-#                         "restarts": restart_count,
-#                         "lastUpdated": kopf.format_datetime(kwargs.get('now')),
-#                         # Optionally store the last few conditions for history
-#                         "conditions": conditions
-#                     }
-#                 }
-#             }
-#         }
-#         custom_api.patch_namespaced_custom_object_status(
-#             group=KALAVAI_GROUP, version=KALAVAI_API_VERSION,
-#             namespace=namespace, plural=KALAVAI_PLURAL,
-#             name=parent_name, body=patch_body
-#         )
-
-#     except client.exceptions.ApiException as e:
-#         logger.error(f"Error updating CR status: {e}")
 
 # Watch services related to the job
 @kopf.on.field('services', field='spec.ports', labels={TEMPLATE_LABEL: kopf.PRESENT})
@@ -364,7 +355,7 @@ def on_nodeport_assigned(old, new, meta, spec, logger, **_):
         # 3. Patch the ServiceRecords section of the CR
         patch_body = {
             "status": {
-                "serviceRecords": {
+                "services": {
                     svc_name: {
                         "clusterIP": spec.get('clusterIP'),
                         "ports": spec.get('ports', [])

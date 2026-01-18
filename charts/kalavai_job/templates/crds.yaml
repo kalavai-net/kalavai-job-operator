@@ -51,12 +51,11 @@ spec:
                   type: integer
                   description: Number of replicas of the job to deploy
                 nodeSelectors:
-                  type: array
-                  items:
-                    type: object
-                    properties:
-                      key: {type: string}
-                      value: {type: string}
+                  type: object
+                  additionalProperties:
+                    type: array
+                    items:
+                      type: string
                 nodeSelectorsOps:
                   type: string
                   description: how to concatenate node selectors (OR, AND)
