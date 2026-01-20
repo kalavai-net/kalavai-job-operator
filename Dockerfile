@@ -1,6 +1,8 @@
 # Use a lightweight Python image
 FROM python:3.12-slim
 
+LABEL org.opencontainers.image.source=https://github.com/kalavai-net/kalavai-job-operator
+
 # Set the working directory
 WORKDIR /app
 

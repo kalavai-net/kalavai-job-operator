@@ -15,7 +15,7 @@ spec:
       serviceAccountName: {{ .Release.Name}}-sa
       containers:
         - name: operator
-          image: "kalavai/kalavai-job-operator:{{ .Values.image.tag }}"
+          image: "ghcr.io/kalavai-net/kalavai-job-operator:{{ .Values.image.tag }}"
           # Kopf command to run the script
           command: 
           - sh
