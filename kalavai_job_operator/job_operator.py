@@ -14,7 +14,7 @@ KALAVAI_API_VERSION = "v1"
 KALAVAI_GROUP = "kalavai.net"
 
 
-def create(spec, name, namespace, patch, logger):
+def create(spec, name, namespace, patch, logger, job_id=None):
     # 1. Extract the list of key-value pairs from the spec
     values = spec.get('template', {}).get("values", {}) 
     chart = spec.get('template', {}).get("chart", None)
@@ -30,7 +30,8 @@ def create(spec, name, namespace, patch, logger):
     logger.info(f"---> Deploying KalavaiJob '{name}' in namespace '{namespace}'")
 
     # inject job id to values
-    job_id = str(uuid.uuid4())
+    if job_id is None:
+        job_id = str(uuid.uuid4())
     
     # inject system values
     if "system" in values:
@@ -145,12 +146,14 @@ def create_fn(spec, name, namespace, patch, logger, **kwargs):
     - check if name already used
     - graceful failure if helm release fails
     """
+    job_id = str(uuid.uuid4())
     result = create(
         spec=spec,
         name=name,
         namespace=namespace,
         patch=patch,
-        logger=logger
+        logger=logger,
+        job_id=job_id
     )
 
     return result
@@ -161,6 +164,9 @@ def update_fn(spec, name, body, namespace, patch, logger, **kwargs):
     Delete old instance and replace it with a new one
     """
     logger.info(f"---> Spec for {name} changed! Re-creating resources...")
+
+    job_id = body.get("metadata", {}).get("labels", {}).get('jobId', None)
+
     delete(
         body=body,
         namespace=namespace,
@@ -172,7 +178,8 @@ def update_fn(spec, name, body, namespace, patch, logger, **kwargs):
         name=name,
         namespace=namespace,
         patch=patch,
-        logger=logger
+        logger=logger,
+        job_id=job_id
     )
     return result
 
