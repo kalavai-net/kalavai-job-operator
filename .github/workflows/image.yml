@@ -3,7 +3,7 @@ name: Publish docker image
 on:
   push:
     tags:
-      - 'v*'
+      - 'kalavai-job-operator-*'
 
 jobs:
   release:
@@ -24,7 +24,10 @@ jobs:
         with:
           images: ghcr.io/kalavai-net/kalavai-job-operator
           tags: |
-            type=semver,pattern={{version}}
+            # Regex breakdown:
+            # [^-]+  -> Match one or more characters that are NOT a hyphen
+            # $      -> Ensure these characters are at the end of the string
+            type=match,pattern=([^-]+)$,group=1
             type=raw,value=latest
 
       # 2. Log in to GHCR
