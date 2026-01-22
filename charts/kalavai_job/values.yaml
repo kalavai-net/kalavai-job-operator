@@ -1,5 +1,5 @@
 image:
-  tag: "latest"
+  tag: null # when null, this is set to match the chart version
   pullPolicy: IfNotPresent
 
 operator:

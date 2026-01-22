@@ -6,7 +6,7 @@ on:
       - 'kalavai-job-operator-*'
 
 jobs:
-  release:
+  publish:
     permissions:
       contents: write
       packages: write
