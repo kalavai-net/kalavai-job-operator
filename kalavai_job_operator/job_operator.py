@@ -164,24 +164,24 @@ def update_fn(spec, name, body, namespace, patch, logger, **kwargs):
     Delete old instance and replace it with a new one
     """
     logger.info(f"---> Spec for {name} changed! Re-creating resources...")
+    logger.info(f"---> [WIP] IGNORING...")
+    # job_id = body.get("metadata", {}).get("labels", {}).get('jobId', None)
 
-    job_id = body.get("metadata", {}).get("labels", {}).get('jobId', None)
+    # delete(
+    #     body=body,
+    #     namespace=namespace,
+    #     logger=logger
+    # )
 
-    delete(
-        body=body,
-        namespace=namespace,
-        logger=logger
-    )
-
-    result = create(
-        spec=spec,
-        name=name,
-        namespace=namespace,
-        patch=patch,
-        logger=logger,
-        job_id=job_id
-    )
-    return result
+    # result = create(
+    #     spec=spec,
+    #     name=name,
+    #     namespace=namespace,
+    #     patch=patch,
+    #     logger=logger,
+    #     job_id=job_id
+    # )
+    # return result
 
 @kopf.on.delete(KALAVAI_GROUP, KALAVAI_API_VERSION, KALAVAI_PLURAL)
 def delete_fn(body, namespace, logger, **kwargs):
@@ -324,6 +324,108 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
         body=patch_body
     )
     logger.info(f"---> Updated CR {namespace}/{parent_name} via jobId {job_id}")
+
+# watch pod container restarts and crashes
+@kopf.on.field('pods', field='status.containerStatuses', labels={TEMPLATE_LABEL: kopf.PRESENT})
+def pod_restart_monitor(old, new, name, namespace, body, logger, **kwargs):
+    """
+    Monitors pod container restarts and crashes, capturing restart counts and error messages.
+    """
+    job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_LABEL)
+    status = body.get('status', {})
+    container_statuses = status.get('containerStatuses', [])
+    
+    if not container_statuses:
+        return
+    
+    # Process each container for restart information
+    restart_info = {}
+    crash_messages = []
+    total_restarts = 0
+    
+    for container_status in container_statuses:
+        container_name = container_status.get('name', 'unknown')
+        restart_count = container_status.get('restartCount', 0)
+        total_restarts += restart_count
+        
+        # Check if container is in waiting state with error
+        waiting_state = container_status.get('state', {}).get('waiting', {})
+        if waiting_state.get('reason') in ['CrashLoopBackOff', 'Error', 'ImagePullBackOff']:
+            message = waiting_state.get('message', 'No error message available')
+            crash_messages.append({
+                'container': container_name,
+                'reason': waiting_state.get('reason'),
+                'message': message,
+                'timestamp': status.get('startTime')
+            })
+        
+        # Check if container is terminated with error
+        terminated_state = container_status.get('state', {}).get('terminated', {})
+        if terminated_state and terminated_state.get('exitCode', 0) != 0:
+            message = terminated_state.get('message', f"Container exited with code {terminated_state.get('exitCode')}")
+            crash_messages.append({
+                'container': container_name,
+                'reason': 'TerminatedWithError',
+                'message': message,
+                'exitCode': terminated_state.get('exitCode'),
+                'timestamp': terminated_state.get('finishedAt')
+            })
+        
+        restart_info[container_name] = {
+            'restartCount': restart_count,
+            'ready': container_status.get('ready', False),
+            'started': container_status.get('started', False),
+            'state': list(container_status.get('state', {}).keys())[0] if container_status.get('state') else 'unknown'
+        }
+    
+    # Only log if there are restarts or crashes
+    if total_restarts > 0 or crash_messages:
+        logger.info(f"---> Pod {namespace}/{name} | Total Restarts: {total_restarts} | Crash Events: {len(crash_messages)}")
+        
+        # Find the parent CR
+        custom_api = client.CustomObjectsApi()
+        try:
+            parent_crs = custom_api.list_namespaced_custom_object(
+                group=KALAVAI_GROUP,
+                version=KALAVAI_API_VERSION,
+                namespace=namespace,
+                plural=KALAVAI_PLURAL,
+                label_selector=f"jobId={job_id}"
+            )
+            
+            items = parent_crs.get('items', [])
+            if not items:
+                logger.warning(f"No CR found for jobId: {job_id}")
+                return
+                
+            parent_cr = items[0]
+            parent_name = parent_cr['metadata']['name']
+            
+            # Update CR with restart and crash information
+            patch_body = {
+                "status": {
+                    "podHealth": {
+                        "totalRestarts": total_restarts,
+                        "containerStatuses": restart_info,
+                        "crashEvents": crash_messages[-10:],  # Keep last 10 crash events
+                        "lastUpdated": status.get('startTime')
+                    }
+                }
+            }
+            
+            custom_api.patch_namespaced_custom_object_status(
+                group=KALAVAI_GROUP,
+                version=KALAVAI_API_VERSION,
+                namespace=namespace,
+                plural=KALAVAI_PLURAL,
+                name=parent_name,
+                body=patch_body
+            )
+            
+            logger.info(f"---> Updated pod health status for CR {namespace}/{parent_name}")
+            
+        except client.exceptions.ApiException as e:
+            logger.error(f"---> Error updating pod health status: {e}")
 
 # Watch services related to the job
 @kopf.on.field('services', field='spec.ports', labels={TEMPLATE_LABEL: kopf.PRESENT})

@@ -44,8 +44,8 @@ kubectl apply -f test/job.yaml
 
 Build docker image:
 ```bash
-docker build -t kalavai/kalavai-job-operator:latest .
-docker push kalavai/kalavai-job-operator:latest
+docker build -t ghcr.io/kalavai-net/kalavai-job-operator:latest .
+docker push ghcr.io/kalavai-net/kalavai-job-operator:latest
 ```
 
 ## Develop
