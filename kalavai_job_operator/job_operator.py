@@ -359,17 +359,46 @@ def pod_restart_monitor(old, new, name, namespace, body, logger, **kwargs):
                 'timestamp': status.get('startTime')
             })
         
-        # Check if container is terminated with error
+        # Check if container is terminated - capture all terminations that cause restarts
         terminated_state = container_status.get('state', {}).get('terminated', {})
-        if terminated_state and terminated_state.get('exitCode', 0) != 0:
-            message = terminated_state.get('message', f"Container exited with code {terminated_state.get('exitCode')}")
+        if terminated_state:
+            # Always capture termination events, including OOMKilled and successful exits that lead to restarts
+            exit_code = terminated_state.get('exitCode', 0)
+            reason = terminated_state.get('reason', 'Terminated')
+            
+            # Special handling for OOMKilled
+            if reason == 'OOMKilled':
+                message = f"Container was killed due to OutOfMemory (OOMKilled)"
+            elif exit_code != 0:
+                message = terminated_state.get('message', f"Container exited with code {exit_code}")
+            else:
+                message = f"Container terminated gracefully (exit code {exit_code}) but was restarted"
+            
             crash_messages.append({
                 'container': container_name,
-                'reason': 'TerminatedWithError',
+                'reason': reason,
                 'message': message,
-                'exitCode': terminated_state.get('exitCode'),
+                'exitCode': exit_code,
                 'timestamp': terminated_state.get('finishedAt')
             })
+        
+        # Also capture any container that has restarts but might not be in error state right now
+        if restart_count > 0:
+            # Check if we already captured this restart in the above conditions
+            has_recent_crash = any(
+                crash['container'] == container_name and 
+                crash['timestamp'] == status.get('startTime')  # Approximate match for recent events
+                for crash in crash_messages
+            )
+            
+            if not has_recent_crash:
+                crash_messages.append({
+                    'container': container_name,
+                    'reason': 'RestartDetected',
+                    'message': f"Container has been restarted {restart_count} times",
+                    'restartCount': restart_count,
+                    'timestamp': status.get('startTime')
+                })
         
         restart_info[container_name] = {
             'restartCount': restart_count,
@@ -404,7 +433,7 @@ def pod_restart_monitor(old, new, name, namespace, body, logger, **kwargs):
             # Update CR with restart and crash information
             patch_body = {
                 "status": {
-                    "podHealth": {
+                    "health": {
                         "totalRestarts": total_restarts,
                         "containerStatuses": restart_info,
                         "crashEvents": crash_messages[-10:],  # Keep last 10 crash events
