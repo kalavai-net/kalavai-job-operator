@@ -261,6 +261,28 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
     """
     Comprehensive pod status monitoring including phase transitions, restarts, and crashes.
     """
+    # Early filter: only process pods that belong to an existing KalavaiJob CR
+    job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_LABEL)
+    if not job_id:
+        return
+
+    custom_api = client.CustomObjectsApi()
+    try:
+        parent_crs = custom_api.list_namespaced_custom_object(
+            group=KALAVAI_GROUP,
+            version=KALAVAI_API_VERSION,
+            namespace=namespace,
+            plural=KALAVAI_PLURAL,
+            label_selector=f"jobId={job_id}"
+        )
+        items = parent_crs.get('items', [])
+        if not items:
+            return
+        parent_cr = items[0]
+        parent_name = parent_cr['metadata']['name']
+    except client.exceptions.ApiException:
+        return
+
     # Extract current phase and compare with previous if available
     current_phase = new.get('phase') if new else None
     previous_phase = old.get('phase') if old else None
@@ -269,7 +291,6 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
     if previous_phase != current_phase:
         logger.info(f"---> Pod {namespace}/{name} changed status from {previous_phase} to {current_phase}")
     
-    job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_LABEL)
     node_name = body.get('spec', {}).get('nodeName', 'Unassigned')
     status = body.get('status', {})
     phase = status.get('phase')
@@ -354,32 +375,6 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
     else:
         logger.info(f"---> Pod {name} | Phase: {phase} | Restarts: {restart_count}")
     
-    custom_api = client.CustomObjectsApi()
-
-    # Find the CRD instance that matches this jobId
-    try:
-        parent_crs = custom_api.list_namespaced_custom_object(
-            group=KALAVAI_GROUP,
-            version=KALAVAI_API_VERSION,
-            namespace=namespace,
-            plural=KALAVAI_PLURAL,
-            label_selector=f"jobId={job_id}"
-        )
-        
-        items = parent_crs.get('items', [])
-        if not items:
-            logger.warning(f"No CR found for jobId: {job_id}")
-            return
-            
-        # Assuming 1:1 relationship between jobId and CR
-        parent_cr = items[0]
-        parent_name = parent_cr['metadata']['name']
-        logger.info(f"---> KalavaiJob CR found: {namespace}/{parent_name}")
-
-    except client.exceptions.ApiException as e:
-        logger.error(f"---> Error searching for CR: {e}")
-        return
-
     # Update the CR with both basic pod info and health information
     patch_body = {
         "status": {
@@ -443,7 +438,7 @@ def on_nodeport_assigned(old, new, meta, spec, logger, **_):
         )
         
         if not parent_crs.get('items'):
-            logger.info(f"---> Parent CR not found for jobId {job_id}")
+            # does not belong to a KalavaiJob, ignore
             return
         parent_name = parent_crs['items'][0]['metadata']['name']
         logger.info(f"---> KalavaiJob CR found {namespace}/{parent_name}")
