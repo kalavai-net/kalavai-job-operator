@@ -5,6 +5,12 @@ image:
 operator:
   replicaCount: 1
 
+nodeSelector: {}
+# Example:
+# nodeSelector:
+#   kubernetes.io/arch: amd64
+#   node-type: worker
+
 jobTemplates:
   url: https://kalavai-net.github.io/kalavai-templates/
   interval: 5m

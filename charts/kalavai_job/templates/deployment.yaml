@@ -13,6 +13,10 @@ spec:
         app: kalavai-job-operator
     spec:
       serviceAccountName: {{ .Release.Name}}-sa
+      {{- if .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml .Values.nodeSelector | nindent 8 }}
+      {{- end }}
       containers:
         - name: operator
         {{ if .Values.image.tag }}

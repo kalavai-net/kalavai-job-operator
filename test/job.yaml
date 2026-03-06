@@ -4,9 +4,9 @@ metadata:
   name: qwen-controller
 spec:
   template:
-    chart: vllm
+    chart: vllm # <-- name of the template to deploy
     version: "0.0.18"
-    repo: kalavai-templates
+    repo: kalavai-template
     values:
       model_id: "Qwen/Qwen3-0.6B"
       hf_token: ""
@@ -14,4 +14,4 @@ spec:
       gpus: 0
       memory: 1
       cpus: 1
-  priorityClassName: user-spot-priority
+  priorityClassName: user-spot-priority # <-- priority for the deployment
