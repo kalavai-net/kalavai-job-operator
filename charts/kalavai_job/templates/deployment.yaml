@@ -19,11 +19,11 @@ spec:
       {{- end }}
       containers:
         - name: operator
-        {{ if .Values.image.tag }}
+        {{- if .Values.image.tag }}
           image: "ghcr.io/kalavai-net/kalavai-job-operator:{{ .Values.image.tag }}"
-        {{ else }}
+        {{- else }}
           image: "ghcr.io/kalavai-net/kalavai-job-operator:{{ .Chart.Version }}"
-        {{ end }}
+        {{- end }}
           # Kopf command to run the script
           command: 
           - sh
