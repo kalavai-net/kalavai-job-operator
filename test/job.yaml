@@ -1,17 +1,15 @@
 apiVersion: kalavai.net/v1
 kind: KalavaiJob
 metadata:
-  name: qwen-controller
+  name: job-controller
 spec:
   template:
-    chart: vllm # <-- name of the template to deploy
-    version: "0.0.18"
+    chart: personaplex # <-- name of the template to deploy
+    version: "0.0.7"
     repo: kalavai-template
     values:
-      model_id: "Qwen/Qwen3-0.6B"
       hf_token: ""
-      workers: 1
-      gpus: 0
-      memory: 1
-      cpus: 1
+      ingress:
+        enabled: false
+        subdomain: spaces.kalavai.net
   priorityClassName: user-spot-priority # <-- priority for the deployment

@@ -460,3 +460,71 @@ def on_nodeport_assigned(old, new, meta, spec, logger, **_):
         
     except client.exceptions.ApiException as e:
         logger.error(f"---> Failed to sync service {svc_name} to CR: {e}")
+
+# Watch ingress objects related to the job
+@kopf.on.field('ingresses', field='spec', labels={TEMPLATE_LABEL: kopf.PRESENT})
+def on_ingress_created(old, new, meta, spec, logger, **_):
+    """
+    old:  The previous value of spec
+    new:  The current value of spec
+    spec: The ENTIRE spec dictionary of the Ingress
+    meta: The metadata (names, labels)
+    """
+    job_id = meta.get('labels', {}).get(TEMPLATE_LABEL)
+    
+    ingress_name = meta.get('name')
+    namespace = meta.get('namespace')
+
+    # 1. Extract interesting networking info
+    # Get the actual address/host and backend service info
+    address = None
+    if spec.get('rules'):
+        # Get host from the first rule
+        address = spec['rules'][0].get('host')
+    
+    # Get backend service information
+    backend_service = None
+    if spec.get('rules') and spec['rules'][0].get('http'):
+        http_rule = spec['rules'][0]['http']
+        if http_rule.get('paths') and http_rule['paths'][0].get('backend'):
+            backend = http_rule['paths'][0]['backend']
+            if backend.get('service'):
+                backend_service = {
+                    'name': backend['service'].get('name'),
+                    'port': backend['service'].get('port', {}).get('number') or backend['service'].get('port', {}).get('name')
+                }
+
+    # 2. Find the Parent CR using the jobId label
+    custom_api = client.CustomObjectsApi()
+    try:
+        parent_crs = custom_api.list_namespaced_custom_object(
+            group=KALAVAI_GROUP,
+            version=KALAVAI_API_VERSION,
+            namespace=namespace,
+            plural=KALAVAI_PLURAL,
+            label_selector=f"jobId={job_id}"
+        )
+        
+        if not parent_crs.get('items'):
+            # does not belong to a KalavaiJob, ignore
+            return
+        parent_name = parent_crs['items'][0]['metadata']['name']
+        logger.info(f"---> KalavaiJob CR found {namespace}/{parent_name}")
+        # 3. Patch the ingress section of the CR status
+        patch_body = {
+            "status": {
+                "ingress": {
+                    ingress_name: {
+                        "address": address,
+                        "backendService": backend_service
+                    }
+                }
+            }
+        }
+        custom_api.patch_namespaced_custom_object_status(
+            group=KALAVAI_GROUP, version=KALAVAI_API_VERSION, namespace=namespace,
+            plural=KALAVAI_PLURAL, name=parent_name, body=patch_body
+        )
+        
+    except client.exceptions.ApiException as e:
+        logger.error(f"---> Failed to sync ingress {ingress_name} to CR: {e}")
