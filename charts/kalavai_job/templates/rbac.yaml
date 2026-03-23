@@ -16,6 +16,10 @@ rules:
   - apiGroups: [""]
     resources: ["events", "secrets", "pods", "services", "pods/status"]
     verbs: ["create", "get", "list", "watch", "patch"]
+  # Permissions for ingress resources
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
   # all cluster
   - apiGroups: ["apiextensions.k8s.io"]
     resources: ["customresourcedefinitions"]
