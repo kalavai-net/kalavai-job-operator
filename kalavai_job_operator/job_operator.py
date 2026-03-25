@@ -475,24 +475,30 @@ def on_ingress_created(old, new, meta, spec, logger, **_):
     ingress_name = meta.get('name')
     namespace = meta.get('namespace')
 
-    # 1. Extract interesting networking info
-    # Get the actual address/host and backend service info
-    address = None
+    # 1. Extract interesting networking info for all rules
+    ingress_rules = []
     if spec.get('rules'):
-        # Get host from the first rule
-        address = spec['rules'][0].get('host')
-    
-    # Get backend service information
-    backend_service = None
-    if spec.get('rules') and spec['rules'][0].get('http'):
-        http_rule = spec['rules'][0]['http']
-        if http_rule.get('paths') and http_rule['paths'][0].get('backend'):
-            backend = http_rule['paths'][0]['backend']
-            if backend.get('service'):
-                backend_service = {
-                    'name': backend['service'].get('name'),
-                    'port': backend['service'].get('port', {}).get('number') or backend['service'].get('port', {}).get('name')
-                }
+        for rule in spec['rules']:
+            host = rule.get('host')
+            
+            # Get backend service and path information
+            if rule.get('http') and rule['http'].get('paths'):
+                for path_rule in rule['http']['paths']:
+                    path = path_rule.get('path', '')
+                    backend = path_rule.get('backend')
+                    backend_service = None
+                    
+                    if backend and backend.get('service'):
+                        backend_service = {
+                            'name': backend['service'].get('name'),
+                            'port': backend['service'].get('port', {}).get('number') or backend['service'].get('port', {}).get('name')
+                        }
+                    
+                    ingress_rules.append({
+                        'address': host,
+                        'path': path,
+                        'backendService': backend_service
+                    })
 
     # 2. Find the Parent CR using the jobId label
     custom_api = client.CustomObjectsApi()
@@ -514,10 +520,7 @@ def on_ingress_created(old, new, meta, spec, logger, **_):
         patch_body = {
             "status": {
                 "ingress": {
-                    ingress_name: {
-                        "address": address,
-                        "backendService": backend_service
-                    }
+                    ingress_name: ingress_rules
                 }
             }
         }
