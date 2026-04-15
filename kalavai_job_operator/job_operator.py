@@ -34,14 +34,17 @@ def create(spec, name, namespace, patch, logger, job_id=None):
         job_id = str(uuid.uuid4())
     
     # inject system values
-    if "system" in values:
-        logger.info("---> 'System' property found in provided values. It will be overwritten")
-    values["system"] = {
+    # TODO: better handling of system values
+    # at the moment they can be set both in the values and in the spec
+    if "system" not in values:
+        values["system"] = {}
+
+    values["system"].update({
         "priorityClassName": priority_class,
         "nodeSelectors": node_selectors,
         "nodeSelectorsOps": node_selectors_ops,
         "jobId": job_id
-    }
+    })
     # Deploy helm template chart
     helm_specs = {
         "chart": chart,
