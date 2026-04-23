@@ -1,7 +1,7 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: {{ .Release.Name}}-cleanup
+  name: {{ .Release.Name}}-job-operator-cleanup
   annotations:
     # This is the magic line that makes it a hook
     "helm.sh/hook": pre-delete
@@ -10,7 +10,7 @@ metadata:
 spec:
   template:
     spec:
-      serviceAccountName: {{ .Release.Name}}-sa
+      serviceAccountName: {{ .Release.Name}}-job-operator-sa
       restartPolicy: Never
       containers:
         - name: kubectl

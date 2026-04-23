@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name}}-deployment
+  name: {{ .Release.Name}}-job-operator-deployment
 spec:
   replicas: {{ .Values.operator.replicaCount }}
   selector:
@@ -12,7 +12,7 @@ spec:
       labels:
         app: kalavai-job-operator
     spec:
-      serviceAccountName: {{ .Release.Name}}-sa
+      serviceAccountName: {{ .Release.Name}}-job-operator-sa
       {{- if .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml .Values.nodeSelector | nindent 8 }}
