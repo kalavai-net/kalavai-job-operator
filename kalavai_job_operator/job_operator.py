@@ -7,7 +7,7 @@ from kubernetes import client, config
 
 
 TEMPLATE_LABEL = os.getenv("TEMPLATE_LABEL", "kalavai.job.name")
-KUBERNETES_RESOURCE_NAME_MAX_LENGTH = 63
+KUBERNETES_MAX_NAME_LENGTH = 62
 HELM_PLURAL = "helmreleases"
 HELM_API_VERSION = "v2"
 HELM_GROUP = "helm.toolkit.fluxcd.io"
@@ -16,12 +16,12 @@ KALAVAI_API_VERSION = "v1"
 KALAVAI_GROUP = "kalavai.net"
 
 
-def _truncate_name(name: str, max_length: int = KUBERNETES_RESOURCE_NAME_MAX_LENGTH) -> str:
+def _truncate_name(name: str, max_length: int = KUBERNETES_MAX_NAME_LENGTH) -> str:
     """Truncate name to max_length, appending hash if truncated to ensure uniqueness."""
     if len(name) <= max_length:
         return name
     
-    # Reserve 9 characters for hash suffix (-[6-char-hash])
+    # Reserve 7 characters for hash suffix (-[6-char-hash])
     hash_suffix_length = 7
     available_length = max_length - hash_suffix_length
     
@@ -30,7 +30,7 @@ def _truncate_name(name: str, max_length: int = KUBERNETES_RESOURCE_NAME_MAX_LEN
         return hashlib.md5(name.encode()).hexdigest()[:max_length]
     
     truncated = name[:available_length]
-    hash_value = hashlib.md5(name.encode()).hexdigest()[:8]
+    hash_value = hashlib.md5(name.encode()).hexdigest()[:6]
     return f"{truncated}-{hash_value}"
 
 
