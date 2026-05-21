@@ -1,34 +1,37 @@
 import os
 import uuid
+import hashlib
 
 import kopf
 from kubernetes import client, config
 
 
 TEMPLATE_LABEL = os.getenv("TEMPLATE_LABEL", "kalavai.job.name")
-KUBERNETES_RESOURCE_NAME_MAX_LENGTH = 50 # max 63, but give padding since helm releases may append to release name
-
-
-def sanitize_resource_name(name: str) -> str:
-    """
-    Truncate resource name to Kubernetes 63 character limit.
-    Ensures the name doesn't end with a hyphen which is invalid.
-    """
-    if len(name) <= KUBERNETES_RESOURCE_NAME_MAX_LENGTH:
-        return name
-    
-    # Truncate and ensure it doesn't end with a hyphen
-    truncated = name[:KUBERNETES_RESOURCE_NAME_MAX_LENGTH]
-    while truncated.endswith('-'):
-        truncated = truncated[:-1]
-    
-    return truncated
+KUBERNETES_RESOURCE_NAME_MAX_LENGTH = 63
 HELM_PLURAL = "helmreleases"
 HELM_API_VERSION = "v2"
 HELM_GROUP = "helm.toolkit.fluxcd.io"
 KALAVAI_PLURAL = "kalavaijobs"
 KALAVAI_API_VERSION = "v1"
 KALAVAI_GROUP = "kalavai.net"
+
+
+def _truncate_name(name: str, max_length: int = KUBERNETES_RESOURCE_NAME_MAX_LENGTH) -> str:
+    """Truncate name to max_length, appending hash if truncated to ensure uniqueness."""
+    if len(name) <= max_length:
+        return name
+    
+    # Reserve 9 characters for hash suffix (-[6-char-hash])
+    hash_suffix_length = 7
+    available_length = max_length - hash_suffix_length
+    
+    if available_length < 1:
+        # Name is too short even for hash, use full hash
+        return hashlib.md5(name.encode()).hexdigest()[:max_length]
+    
+    truncated = name[:available_length]
+    hash_value = hashlib.md5(name.encode()).hexdigest()[:8]
+    return f"{truncated}-{hash_value}"
 
 
 def create(spec, name, namespace, patch, logger, job_id=None):
@@ -47,7 +50,7 @@ def create(spec, name, namespace, patch, logger, job_id=None):
     logger.info(f"---> Deploying KalavaiJob '{name}' in namespace '{namespace}'")
     
     # Sanitize resource name to ensure it doesn't exceed Kubernetes 63 character limit
-    sanitized_name = sanitize_resource_name(name)
+    sanitized_name = _truncate_name(name)
     if sanitized_name != name:
         logger.warning(f"---> Resource name '{name}' exceeds Kubernetes 63 character limit, truncated to '{sanitized_name}'")
 
