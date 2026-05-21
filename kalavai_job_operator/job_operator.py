@@ -6,6 +6,23 @@ from kubernetes import client, config
 
 
 TEMPLATE_LABEL = os.getenv("TEMPLATE_LABEL", "kalavai.job.name")
+KUBERNETES_RESOURCE_NAME_MAX_LENGTH = 50 # max 63, but give padding since helm releases may append to release name
+
+
+def sanitize_resource_name(name: str) -> str:
+    """
+    Truncate resource name to Kubernetes 63 character limit.
+    Ensures the name doesn't end with a hyphen which is invalid.
+    """
+    if len(name) <= KUBERNETES_RESOURCE_NAME_MAX_LENGTH:
+        return name
+    
+    # Truncate and ensure it doesn't end with a hyphen
+    truncated = name[:KUBERNETES_RESOURCE_NAME_MAX_LENGTH]
+    while truncated.endswith('-'):
+        truncated = truncated[:-1]
+    
+    return truncated
 HELM_PLURAL = "helmreleases"
 HELM_API_VERSION = "v2"
 HELM_GROUP = "helm.toolkit.fluxcd.io"
@@ -28,6 +45,11 @@ def create(spec, name, namespace, patch, logger, job_id=None):
         logger.warning(f"KalavaiJob '{name}' created with empty template.values")
 
     logger.info(f"---> Deploying KalavaiJob '{name}' in namespace '{namespace}'")
+    
+    # Sanitize resource name to ensure it doesn't exceed Kubernetes 63 character limit
+    sanitized_name = sanitize_resource_name(name)
+    if sanitized_name != name:
+        logger.warning(f"---> Resource name '{name}' exceeds Kubernetes 63 character limit, truncated to '{sanitized_name}'")
 
     # inject job id to values
     if job_id is None:
@@ -61,7 +83,7 @@ def create(spec, name, namespace, patch, logger, job_id=None):
         "apiVersion": "helm.toolkit.fluxcd.io/v2",
         "kind": "HelmRelease",
         "metadata": {
-            "name": name,
+            "name": sanitized_name,
             "labels": {
                 TEMPLATE_LABEL: job_id
             }
