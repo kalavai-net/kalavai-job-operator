@@ -15,6 +15,9 @@ KALAVAI_PLURAL = "kalavaijobs"
 KALAVAI_API_VERSION = "v1"
 KALAVAI_GROUP = "kalavai.net"
 
+# Global API client instance (initialized after config is loaded)
+custom_api = None
+
 
 def _truncate_name(name: str, max_length: int = KUBERNETES_MAX_NAME_LENGTH) -> str:
     """Truncate name to max_length, appending hash if truncated to ensure uniqueness."""
@@ -104,7 +107,6 @@ def create(spec, name, namespace, patch, logger, job_id=None):
     kopf.adopt(helm_release)
     
     # Use the custom object API to create it
-    custom_api = client.CustomObjectsApi()
     result = custom_api.create_namespaced_custom_object(
         group=HELM_GROUP, version=HELM_API_VERSION, 
         namespace=namespace, plural=HELM_PLURAL, body=helm_release
@@ -117,8 +119,6 @@ def create(spec, name, namespace, patch, logger, job_id=None):
     return {'status': 'synced', 'job_id': job_id}
 
 def delete(body, namespace, logger):
-    api = client.CustomObjectsApi()
-
     job_id = body.get("metadata", {}).get("labels", {}).get('jobId', None)
 
     if job_id is None:
@@ -129,7 +129,7 @@ def delete(body, namespace, logger):
     
     # 2. Find the objects
     try:
-        response = api.list_namespaced_custom_object(
+        response = custom_api.list_namespaced_custom_object(
             group=HELM_GROUP,
             version=HELM_API_VERSION,
             namespace=namespace,
@@ -142,7 +142,7 @@ def delete(body, namespace, logger):
         # 3. Delete each item
         for item in items:
             name = item['metadata']['name']
-            api.delete_namespaced_custom_object(
+            custom_api.delete_namespaced_custom_object(
                 group=HELM_GROUP,
                 version=HELM_API_VERSION,
                 namespace=namespace,
@@ -158,10 +158,14 @@ def delete(body, namespace, logger):
 
 @kopf.on.startup()
 def configure(settings: kopf.OperatorSettings, **_):
+    global custom_api
     try:
         config.load_incluster_config()
     except config.ConfigException:
         config.load_kube_config()
+    
+    # Initialize global API client after config is loaded
+    custom_api = client.CustomObjectsApi()
 
 @kopf.on.create(KALAVAI_GROUP, KALAVAI_API_VERSION, KALAVAI_PLURAL)
 def create_fn(spec, name, namespace, patch, logger, **kwargs):
@@ -252,8 +256,6 @@ def sync_all_helm_conditions(old, new, name, namespace, body, logger, **kwargs):
         logger.warning(f"---> No job id found in helm release {name}")
         return
 
-    custom_api = client.CustomObjectsApi()
-    
     try:
         # 3. Find parent CRs
         parent_crs = custom_api.list_namespaced_custom_object(
@@ -294,7 +296,6 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
     if not job_id:
         return
 
-    custom_api = client.CustomObjectsApi()
     try:
         parent_crs = custom_api.list_namespaced_custom_object(
             group=KALAVAI_GROUP,
@@ -455,7 +456,6 @@ def on_nodeport_assigned(old, new, meta, spec, logger, **_):
     #node_ports = {p.get('name'): p.get('nodePort') for p in spec.get('ports', []) if p.get('nodePort')}
 
     # 2. Find the Parent CR using the jobId label
-    custom_api = client.CustomObjectsApi()
     try:
         parent_crs = custom_api.list_namespaced_custom_object(
             group=KALAVAI_GROUP,
@@ -529,7 +529,6 @@ def on_ingress_created(old, new, meta, spec, logger, **_):
                     })
 
     # 2. Find the Parent CR using the jobId label
-    custom_api = client.CustomObjectsApi()
     try:
         parent_crs = custom_api.list_namespaced_custom_object(
             group=KALAVAI_GROUP,
