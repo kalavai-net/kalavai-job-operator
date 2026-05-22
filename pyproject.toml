@@ -1,6 +1,6 @@
 [project]
 name            = "kalavai-job-operator"
-version         = "0.0.26"
+version         = "0.1.0"
 authors = [
   {name = "Carlos Fernandez Musoles", email = "carlos@kalavai.net"}
 ]
@@ -13,7 +13,7 @@ requires-python = ">=3.12"
 dependencies = [
     "requests>= 2.25",
     "kopf",
-    "kubernetes"
+    "kubernetes==29.0.0"
 ]
 
 
