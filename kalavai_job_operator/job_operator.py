@@ -19,6 +19,70 @@ KALAVAI_GROUP = "kalavai.net"
 custom_api = None
 
 
+def _generate_helm_release_spec(name, job_spec, job_id):
+    # 1. Extract the list of key-value pairs from the spec
+    values = job_spec.get('template', {}).get("values", {})
+    chart = job_spec.get('template', {}).get("chart", None)
+    version = job_spec.get('template', {}).get("version", None)
+    repo = job_spec.get('template', {}).get("repo", "kalavai-templates")
+    priority_class = job_spec.get('priorityClassName', None)
+    node_selectors = job_spec.get('nodeSelectors', None)
+    node_selectors_ops = job_spec.get('nodeSelectorsOps', "OR")
+    
+    if not values:
+        logger.warning(f"KalavaiJob '{name}' updated with empty template.values")
+    
+    # Sanitize resource name to ensure it doesn't exceed Kubernetes 63 character limit
+    sanitized_name = _truncate_name(name)
+    if sanitized_name != name:
+        logger.warning(f"---> Resource name '{name}' exceeds Kubernetes 63 character limit, truncated to '{sanitized_name}'")
+    
+    # inject system values
+    # TODO: better handling of system values
+    # at the moment they can be set both in the values and in the spec
+    if "system" not in values:
+        values["system"] = {}
+
+    values["system"].update({
+        "priorityClassName": priority_class,
+        "nodeSelectors": node_selectors,
+        "nodeSelectorsOps": node_selectors_ops,
+        "jobId": job_id
+    })
+    
+    # Build helm specs
+    helm_specs = {
+        "chart": chart,
+        "sourceRef": {
+            "kind": "HelmRepository",
+            "name": repo,
+            "namespace": "default",
+        }
+    }
+    if version is not None:
+        helm_specs["version"] = version
+    
+    # Build the helm release update payload
+    helm_release = {
+        "apiVersion": "helm.toolkit.fluxcd.io/v2",
+        "kind": "HelmRelease",
+        "metadata": {
+            "name": sanitized_name,
+            "labels": {
+                TEMPLATE_LABEL: job_id
+            }
+        },
+        "spec": {
+            "interval": "10m",
+            "chart": {
+                "spec": helm_specs
+            },
+            "values": values
+        }
+    }
+    
+    return helm_release
+
 def _truncate_name(name: str, max_length: int = KUBERNETES_MAX_NAME_LENGTH) -> str:
     """Truncate name to max_length, appending hash if truncated to ensure uniqueness."""
     if len(name) <= max_length:
@@ -38,70 +102,17 @@ def _truncate_name(name: str, max_length: int = KUBERNETES_MAX_NAME_LENGTH) -> s
 
 
 def create(spec, name, namespace, patch, logger, job_id=None):
-    # 1. Extract the list of key-value pairs from the spec
-    values = spec.get('template', {}).get("values", {}) 
-    chart = spec.get('template', {}).get("chart", None)
-    version = spec.get('template', {}).get("version", None)
-    repo = spec.get('template', {}).get("repo", "kalavai-templates")
-    priority_class = spec.get('priorityClassName', None)
-    node_selectors = spec.get('nodeSelectors', None)
-    node_selectors_ops = spec.get('nodeSelectorsOps', "OR")
-    
-    if not values:
-        logger.warning(f"KalavaiJob '{name}' created with empty template.values")
-
     logger.info(f"---> Deploying KalavaiJob '{name}' in namespace '{namespace}'")
     
-    # Sanitize resource name to ensure it doesn't exceed Kubernetes 63 character limit
-    sanitized_name = _truncate_name(name)
-    if sanitized_name != name:
-        logger.warning(f"---> Resource name '{name}' exceeds Kubernetes 63 character limit, truncated to '{sanitized_name}'")
-
     # inject job id to values
     if job_id is None:
         job_id = str(uuid.uuid4())
     
-    # inject system values
-    # TODO: better handling of system values
-    # at the moment they can be set both in the values and in the spec
-    if "system" not in values:
-        values["system"] = {}
-
-    values["system"].update({
-        "priorityClassName": priority_class,
-        "nodeSelectors": node_selectors,
-        "nodeSelectorsOps": node_selectors_ops,
-        "jobId": job_id
-    })
-    # Deploy helm template chart
-    helm_specs = {
-        "chart": chart,
-        "sourceRef": {
-            "kind": "HelmRepository",
-            "name": repo,
-            "namespace": "default",
-        }
-    }
-    if version is not None:
-        helm_specs["version"] = version
-    
-    helm_release = {
-        "apiVersion": "helm.toolkit.fluxcd.io/v2",
-        "kind": "HelmRelease",
-        "metadata": {
-            "name": sanitized_name,
-            "labels": {
-                TEMPLATE_LABEL: job_id
-            }
-        },
-        "spec": {
-            "interval": "10m",
-            "chart": {
-                "spec": helm_specs
-            },
-            "values": values
-        }
-    }
+    helm_release = _generate_helm_release_spec(
+        name=name,
+        job_spec=spec,
+        job_id=job_id
+    )
 
     # kopf.adopt() makes the KalavaiJob the owner of 'HelmRelease'
     kopf.adopt(helm_release)
@@ -193,27 +204,44 @@ def create_fn(spec, name, namespace, patch, logger, **kwargs):
 @kopf.on.field(KALAVAI_GROUP, KALAVAI_API_VERSION, KALAVAI_PLURAL, field='spec')
 def update_fn(spec, name, body, namespace, patch, logger, **kwargs):
     """
-    Delete old instance and replace it with a new one
+    Update existing KalavaiJob with new spec
     """
-    logger.info(f"---> Spec for {name} changed! Re-creating resources...")
-    logger.info(f"---> [WIP] IGNORING...")
-    # job_id = body.get("metadata", {}).get("labels", {}).get('jobId', None)
+    logger.info(f"---> Spec for {name} changed! Updating resources...")
+    
+    # Get the existing job_id from labels
+    job_id = body.get("metadata", {}).get("labels", {}).get('jobId', None)
+    if not job_id:
+        logger.warning(f"---> jobId not found in labels, cannot update")
+        return
 
-    # delete(
-    #     body=body,
-    #     namespace=namespace,
-    #     logger=logger
-    # )
-
-    # result = create(
-    #     spec=spec,
-    #     name=name,
-    #     namespace=namespace,
-    #     patch=patch,
-    #     logger=logger,
-    #     job_id=job_id
-    # )
-    # return result
+    logger.info(f"---> Updating KalavaiJob '{name}' in namespace '{namespace}'")
+    
+    helm_release = _generate_helm_release_spec(
+        name=name,
+        job_spec=spec, 
+        job_id=job_id
+    )
+    
+    # Directly patch the HelmRelease by name (same naming convention as create)
+    sanitized_name = _truncate_name(name)
+    try:
+        custom_api.patch_namespaced_custom_object(
+            HELM_GROUP,
+            HELM_API_VERSION,
+            namespace,
+            HELM_PLURAL,
+            sanitized_name,
+            helm_release
+        )
+        logger.info(f"---> Updated HelmRelease: {sanitized_name}")
+    
+    except client.exceptions.ApiException as e:
+        logger.warning(f"---> Exception when updating HelmRelease: {e}")
+    
+    logger.info(f"---> KalavaiJob updated with id {job_id}")
+    return {'status': 'synced', 'job_id': job_id}
+    
+    
 
 @kopf.on.delete(KALAVAI_GROUP, KALAVAI_API_VERSION, KALAVAI_PLURAL)
 def delete_fn(body, namespace, logger, **kwargs):
