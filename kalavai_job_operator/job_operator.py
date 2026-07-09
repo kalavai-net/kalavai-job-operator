@@ -28,6 +28,7 @@ def _generate_helm_release_spec(name, job_spec, job_id):
     priority_class = job_spec.get('priorityClassName', None)
     node_selectors = job_spec.get('nodeSelectors', None)
     node_selectors_ops = job_spec.get('nodeSelectorsOps', "OR")
+    resources = job_spec.get("resources", None)
     
     if not values:
         logger.warning(f"KalavaiJob '{name}' updated with empty template.values")
@@ -49,6 +50,12 @@ def _generate_helm_release_spec(name, job_spec, job_id):
         "nodeSelectorsOps": node_selectors_ops,
         "jobId": job_id
     })
+
+    # inject resource values
+    if resources is not None:
+        if "resources" not in values:
+            values["resources"] = {}
+        values["resources"].update(resources)
     
     # Build helm specs
     helm_specs = {

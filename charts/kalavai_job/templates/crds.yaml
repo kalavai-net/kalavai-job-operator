@@ -59,6 +59,10 @@ spec:
                 nodeSelectorsOps:
                   type: string
                   description: how to concatenate node selectors (OR, AND)
+                resources:
+                  type: object
+                  description: Resource requests and limits for the job
+                  x-kubernetes-preserve-unknown-fields: true
             status:
               type: object
               # Use this for arbitrary status data
