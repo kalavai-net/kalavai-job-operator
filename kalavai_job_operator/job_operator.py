@@ -6,7 +6,7 @@ import kopf
 from kubernetes import client, config
 
 
-TEMPLATE_LABEL = os.getenv("TEMPLATE_LABEL", "kalavai.job.name")
+TEMPLATE_ID_LABEL = os.getenv("TEMPLATE_ID_LABEL", "kalavai.job.name")
 KUBERNETES_MAX_NAME_LENGTH = 62
 HELM_PLURAL = "helmreleases"
 HELM_API_VERSION = "v2"
@@ -76,7 +76,7 @@ def _generate_helm_release_spec(name, job_spec, job_id):
         "metadata": {
             "name": sanitized_name,
             "labels": {
-                TEMPLATE_LABEL: job_id
+                TEMPLATE_ID_LABEL: job_id
             }
         },
         "spec": {
@@ -131,7 +131,7 @@ def create(spec, name, namespace, patch, logger, job_id=None):
     )
     #patch.status['jobId'] = job_id
     # add job id to labels for quick search
-    patch.metadata.labels["jobId"] = job_id
+    patch.metadata.labels[TEMPLATE_ID_LABEL] = job_id
     logger.info(f"---> KalavaiJob created with id {job_id}")
 
     return {'status': 'synced', 'job_id': job_id}
@@ -143,7 +143,7 @@ def delete(body, namespace, logger):
         logger.warning(f"---> jobId not found, cannot delete")
         return
     
-    label_selector = f"{TEMPLATE_LABEL}={job_id}"
+    label_selector = f"{TEMPLATE_ID_LABEL}={job_id}"
     
     # 2. Find the objects
     try:
@@ -286,7 +286,7 @@ def sync_all_helm_conditions(old, new, name, namespace, body, logger, **kwargs):
         })
 
     # 2. Extract link to parent CR
-    job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_LABEL)
+    job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_ID_LABEL)
     if not job_id:
         logger.warning(f"---> No job id found in helm release {name}")
         return
@@ -321,13 +321,13 @@ def sync_all_helm_conditions(old, new, name, namespace, body, logger, **kwargs):
         logger.error(f"---> Failed to replicate conditions: {e}")
 
 # watch pods related to the job - monitor all pod status changes including restarts
-@kopf.on.field('pods', field='status', labels={TEMPLATE_LABEL: kopf.PRESENT})
+@kopf.on.field('pods', field='status', labels={TEMPLATE_ID_LABEL: kopf.PRESENT})
 def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
     """
     Comprehensive pod status monitoring including phase transitions, restarts, and crashes.
     """
     # Early filter: only process pods that belong to an existing KalavaiJob CR
-    job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_LABEL)
+    job_id = body.get('metadata', {}).get('labels', {}).get(TEMPLATE_ID_LABEL)
     if not job_id:
         return
 
@@ -473,7 +473,7 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
     logger.info(f"---> Updated CR {namespace}/{parent_name} via jobId {job_id}")
 
 # Watch services related to the job
-@kopf.on.field('services', field='spec.ports', labels={TEMPLATE_LABEL: kopf.PRESENT})
+@kopf.on.field('services', field='spec.ports', labels={TEMPLATE_ID_LABEL: kopf.PRESENT})
 def on_nodeport_assigned(old, new, meta, spec, logger, **_):
     """
     old:  The previous value of spec.ports
@@ -481,7 +481,7 @@ def on_nodeport_assigned(old, new, meta, spec, logger, **_):
     spec: The ENTIRE spec dictionary of the Service
     meta: The metadata (names, labels)
     """
-    job_id = meta.get('labels', {}).get(TEMPLATE_LABEL)
+    job_id = meta.get('labels', {}).get(TEMPLATE_ID_LABEL)
     
     svc_name = meta.get('name')
     namespace = meta.get('namespace')
@@ -525,7 +525,7 @@ def on_nodeport_assigned(old, new, meta, spec, logger, **_):
         logger.error(f"---> Failed to sync service {svc_name} to CR: {e}")
 
 # Watch ingress objects related to the job
-@kopf.on.field('ingresses', field='spec', labels={TEMPLATE_LABEL: kopf.PRESENT})
+@kopf.on.field('ingresses', field='spec', labels={TEMPLATE_ID_LABEL: kopf.PRESENT})
 def on_ingress_created(old, new, meta, spec, logger, **_):
     """
     old:  The previous value of spec
@@ -533,7 +533,7 @@ def on_ingress_created(old, new, meta, spec, logger, **_):
     spec: The ENTIRE spec dictionary of the Ingress
     meta: The metadata (names, labels)
     """
-    job_id = meta.get('labels', {}).get(TEMPLATE_LABEL)
+    job_id = meta.get('labels', {}).get(TEMPLATE_ID_LABEL)
     
     ingress_name = meta.get('name')
     namespace = meta.get('namespace')
