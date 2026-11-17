@@ -216,7 +216,7 @@ def update_fn(spec, name, body, namespace, patch, logger, **kwargs):
     logger.info(f"---> Spec for {name} changed! Updating resources...")
     
     # Get the existing job_id from labels
-    job_id = body.get("metadata", {}).get("labels", {}).get('jobId', None)
+    job_id = body.get("metadata", {}).get("labels", {}).get(TEMPLATE_ID_LABEL, None)
     if not job_id:
         logger.warning(f"---> jobId not found in labels, cannot update")
         return
@@ -295,7 +295,7 @@ def sync_all_helm_conditions(old, new, name, namespace, body, logger, **kwargs):
         # 3. Find parent CRs
         parent_crs = custom_api.list_namespaced_custom_object(
             group=KALAVAI_GROUP, version=KALAVAI_API_VERSION, namespace=namespace,
-            plural=KALAVAI_PLURAL, label_selector=f"jobId={job_id}"
+            plural=KALAVAI_PLURAL, label_selector=f"{TEMPLATE_ID_LABEL}={job_id}"
         )
         if len(parent_crs) == 0:
             logger.warning(f"---> Job id {job_id} did not have a corresponding CR")
@@ -337,7 +337,7 @@ def pod_status_change(old, new, name, namespace, body, logger, **kwargs):
             version=KALAVAI_API_VERSION,
             namespace=namespace,
             plural=KALAVAI_PLURAL,
-            label_selector=f"jobId={job_id}"
+            label_selector=f"{TEMPLATE_ID_LABEL}={job_id}"
         )
         items = parent_crs.get('items', [])
         if not items:
@@ -497,7 +497,7 @@ def on_nodeport_assigned(old, new, meta, spec, logger, **_):
             version=KALAVAI_API_VERSION,
             namespace=namespace,
             plural=KALAVAI_PLURAL,
-            label_selector=f"jobId={job_id}"
+            label_selector=f"{TEMPLATE_ID_LABEL}={job_id}"
         )
         
         if not parent_crs.get('items'):
@@ -570,7 +570,7 @@ def on_ingress_created(old, new, meta, spec, logger, **_):
             version=KALAVAI_API_VERSION,
             namespace=namespace,
             plural=KALAVAI_PLURAL,
-            label_selector=f"jobId={job_id}"
+            label_selector=f"{TEMPLATE_ID_LABEL}={job_id}"
         )
         
         if not parent_crs.get('items'):
