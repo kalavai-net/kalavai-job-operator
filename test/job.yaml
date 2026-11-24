@@ -1,15 +1,12 @@
 apiVersion: kalavai.net/v1
 kind: KalavaiJob
 metadata:
-  name: job-controller
+  name: job-test
 spec:
+  suspend: false
   template:
-    chart: personaplex # <-- name of the template to deploy
+    chart: serverless # <-- name of the template to deploy
     version: "0.0.7"
     repo: kalavai-template
     values:
-      hf_token: ""
-      ingress:
-        enabled: false
-        subdomain: spaces.kalavai.net
-  priorityClassName: user-spot-priority # <-- priority for the deployment
+      containerImage: nginx

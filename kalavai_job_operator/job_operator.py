@@ -126,12 +126,22 @@ def create(spec, name, namespace, patch, logger, job_id=None):
 
     # kopf.adopt() makes the KalavaiJob the owner of 'HelmRelease'
     kopf.adopt(helm_release)
+    sanitized_name = _truncate_name(name)
     
-    # Use the custom object API to create it
-    result = custom_api.create_namespaced_custom_object(
-        group=HELM_GROUP, version=HELM_API_VERSION, 
-        namespace=namespace, plural=HELM_PLURAL, body=helm_release
-    )
+    # Use the custom object API to create it (idempotent: patch if it already exists)
+    try:
+        result = custom_api.create_namespaced_custom_object(
+            group=HELM_GROUP, version=HELM_API_VERSION,
+            namespace=namespace, plural=HELM_PLURAL, body=helm_release
+        )
+    except client.exceptions.ApiException as e:
+        if getattr(e, "status", None) != 409:
+            raise
+        logger.info(f"---> HelmRelease '{sanitized_name}' already exists, patching instead")
+        result = custom_api.patch_namespaced_custom_object(
+            HELM_GROUP, HELM_API_VERSION, namespace, HELM_PLURAL,
+            sanitized_name, helm_release
+        )
     #patch.status['jobId'] = job_id
     # add job id to labels for quick search
     patch.metadata.labels[TEMPLATE_ID_LABEL] = job_id

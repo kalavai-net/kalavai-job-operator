@@ -60,7 +60,7 @@ pip install -e .
 
 Apply crds:
 ```bash
-kubectl apply -f chart/templates/crds.yaml
+kubectl apply -f charts/kalavai_job/templates/crds.yaml
 ```
 
 Run operator:
