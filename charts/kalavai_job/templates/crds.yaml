@@ -63,6 +63,10 @@ spec:
                   type: object
                   description: Resource requests and limits for the job
                   x-kubernetes-preserve-unknown-fields: true
+                suspend:
+                  type: boolean
+                  default: false
+                  description: When true, all deployed objects are deleted and status is cleared. Set to false to redeploy.
             status:
               type: object
               # Use this for arbitrary status data

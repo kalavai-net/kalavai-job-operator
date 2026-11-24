@@ -1,9 +1,12 @@
 import os
 import uuid
 import hashlib
+import logging
 
 import kopf
 from kubernetes import client, config
+
+logger = logging.Logger("kalavai-job-op")
 
 
 TEMPLATE_ID_LABEL = os.getenv("TEMPLATE_ID_LABEL", "kalavai.job.name")
@@ -137,7 +140,7 @@ def create(spec, name, namespace, patch, logger, job_id=None):
     return {'status': 'synced', 'job_id': job_id}
 
 def delete(body, namespace, logger):
-    job_id = body.get("metadata", {}).get("labels", {}).get('jobId', None)
+    job_id = body.get("metadata", {}).get("labels", {}).get(TEMPLATE_ID_LABEL, None)
 
     if job_id is None:
         logger.warning(f"---> jobId not found, cannot delete")
@@ -174,6 +177,65 @@ def delete(body, namespace, logger):
         logger.warning(f"---> Exception when calling CustomObjectsApi: {e}")
 
 
+def _clear_status(name, namespace, logger):
+    try:
+        custom_api.patch_namespaced_custom_object_status(
+            group=KALAVAI_GROUP, version=KALAVAI_API_VERSION, namespace=namespace,
+            plural=KALAVAI_PLURAL, name=name, body={"status": {}}
+        )
+        logger.info(f"---> Cleared status for KalavaiJob '{name}'")
+    except client.exceptions.ApiException as e:
+        logger.warning(f"---> Exception when clearing status: {e}")
+
+
+def _helm_release_exists(name, namespace):
+    try:
+        custom_api.get_namespaced_custom_object(
+            group=HELM_GROUP, version=HELM_API_VERSION,
+            namespace=namespace, plural=HELM_PLURAL, name=_truncate_name(name)
+        )
+        return True
+    except client.exceptions.ApiException as e:
+        if getattr(e, "status", None) == 404:
+            return False
+        raise
+
+
+@kopf.on.field(KALAVAI_GROUP, KALAVAI_API_VERSION, KALAVAI_PLURAL, field='spec.suspend')
+def suspend_fn(old, new, spec, body, name, namespace, patch, logger, **kwargs):
+    """
+    Pause/resume deployments via spec.suspend.
+    - true: delete deployed objects and clear status.
+    - false: redeploy once (only if objects are missing).
+    """
+    suspended = bool(new) if new is not None else False
+
+    if suspended:
+        logger.info(f"---> Suspending KalavaiJob '{name}'")
+        delete(body=body, namespace=namespace, logger=logger)
+        _clear_status(name=name, namespace=namespace, logger=logger)
+        return {'status': 'suspended'}
+
+    # Resume: fall back to create flow, but only once — skip if already deployed
+    logger.info(f"---> Resuming KalavaiJob '{name}'")
+    if _helm_release_exists(name, namespace):
+        logger.info(f"---> HelmRelease for '{name}' already exists, skipping redeploy")
+        return {'status': 'synced'}
+
+    job_id = body.get("metadata", {}).get("labels", {}).get(TEMPLATE_ID_LABEL, None)
+    if not job_id:
+        job_id = str(uuid.uuid4())
+    result = create(
+        spec=spec,
+        name=name,
+        namespace=namespace,
+        patch=patch,
+        logger=logger,
+        job_id=job_id
+    )
+    return result
+
+
 @kopf.on.startup()
 def configure(settings: kopf.OperatorSettings, **_):
     global custom_api
@@ -196,6 +258,9 @@ def create_fn(spec, name, namespace, patch, logger, **kwargs):
     - check if name already used
     - graceful failure if helm release fails
     """
+    if spec.get('suspend', False):
+        logger.info(f"---> KalavaiJob '{name}' created suspended, skipping deploy")
+        return {'status': 'suspended'}
     job_id = str(uuid.uuid4())
     result = create(
         spec=spec,
@@ -215,6 +280,10 @@ def update_fn(spec, name, body, namespace, patch, logger, **kwargs):
     """
     logger.info(f"---> Spec for {name} changed! Updating resources...")
     
+    if spec.get('suspend', False):
+        logger.info(f"---> KalavaiJob '{name}' is suspended, skipping update")
+        return {'status': 'suspended'}
+
     # Get the existing job_id from labels
     job_id = body.get("metadata", {}).get("labels", {}).get(TEMPLATE_ID_LABEL, None)
     if not job_id:
