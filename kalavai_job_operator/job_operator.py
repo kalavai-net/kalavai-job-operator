@@ -189,11 +189,21 @@ def delete(body, namespace, logger):
 
 def _clear_status(name, namespace, logger):
     try:
+        obj = custom_api.get_namespaced_custom_object(
+            group=KALAVAI_GROUP, version=KALAVAI_API_VERSION, namespace=namespace,
+            plural=KALAVAI_PLURAL, name=name
+        )
+        status_keys = list((obj.get("status") or {}).keys())
+        if not status_keys:
+            logger.info(f"---> Status for KalavaiJob '{name}' already empty")
+            return
+        # JSON merge patch: null deletes each key. An empty dict {} is a no-op.
+        body = {"status": {k: None for k in status_keys}}
         custom_api.patch_namespaced_custom_object_status(
             group=KALAVAI_GROUP, version=KALAVAI_API_VERSION, namespace=namespace,
-            plural=KALAVAI_PLURAL, name=name, body={"status": {}}
+            plural=KALAVAI_PLURAL, name=name, body=body
         )
-        logger.info(f"---> Cleared status for KalavaiJob '{name}'")
+        logger.info(f"---> Cleared status for KalavaiJob '{name}' (removed: {status_keys})")
     except client.exceptions.ApiException as e:
         logger.warning(f"---> Exception when clearing status: {e}")
 
@@ -224,7 +234,7 @@ def suspend_fn(old, new, spec, body, name, namespace, patch, logger, **kwargs):
         logger.info(f"---> Suspending KalavaiJob '{name}'")
         delete(body=body, namespace=namespace, logger=logger)
         _clear_status(name=name, namespace=namespace, logger=logger)
-        return {'status': 'suspended'}
+        return  # do not return a dict: kopf would store it under status.suspend_fn
 
     # Resume: fall back to create flow, but only once — skip if already deployed
     logger.info(f"---> Resuming KalavaiJob '{name}'")
